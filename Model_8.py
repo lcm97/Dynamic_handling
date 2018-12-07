@@ -2,6 +2,7 @@ from keras.models import Model
 from keras.layers import Conv2D, Input, Flatten, Dense, MaxPooling1D, TimeDistributed, Lambda
 from keras.layers.merge import concatenate
 import tensorflow as tf
+import numpy as np
 
 
 def lambda_fun(x, num_split, index):
@@ -130,10 +131,89 @@ def fc_3():
     return Model(layer_input, layer)
 
 
-def half_dense_layers():
-    layer_input = Input(shape=(2, 15, 256))
-    layer = Flatten()(layer_input)
-    layer = Dense(4096, activation='relu')(layer)
-    layer = Dense(4096, activation='relu')(layer)
-    layer = Dense(51, activation='softmax')(layer)
-    return Model(layer_input, layer)
+def forward(req_input, req_next, node):
+    bytestr = req_input
+
+    if req_next == 'spatial':
+
+        X = np.fromstring(bytestr, np.uint8).reshape(16, 12, 16, 3)
+        node.model = spatial_model_multi() if node.model is None else node.model
+        output = node.model.predict(np.array([X]))
+        name = 'block1'
+        node.log('finish spatial forward')
+        return output, name
+
+    elif req_next == 'temporal':
+        node.log('temporal gets data')
+        X = np.fromstring(bytestr, np.uint8).reshape(16, 12, 16, 20)
+        node.model = temporal_model_multi() if node.model is None else node.model
+        output = node.model.predict(np.array([X]))
+        name = 'block'
+        node.log('finish temporal forward')
+        return output, name
+
+    elif req_next == 'block1':
+        node.log('block1 gets data')
+        X = np.fromstring(bytestr, np.float32).reshape(16, 256)
+        node.input.append(X)
+        node.log('input size', str(len(node.input)))
+        # if the size is not enough, store in the queue and return.
+        if len(node.input) < 2:
+            node.release_lock()
+            return
+        # too many data packets, then drop some data.
+        while len(node.input) > 2:
+            node.input.popleft()
+
+        mp_model = maxpoolings()
+        output1 = mp_model.predict(np.array([node.input[0]]))
+        output2 = mp_model.predict(np.array([node.input[1]]))
+
+        con_model = temporal_pyramid_concate()
+        X = con_model.predict([np.array([output1]), np.array([output2])])
+
+        inter_dense = fc_1()
+        output = inter_dense.predict(X)
+        name = 'block2'
+        node.log('fc_1 model inference')
+        return output, name
+
+    elif req_next == 'block2':
+        node.log('block2 gets data')
+        X = np.fromstring(bytestr, np.float32).reshape(1, 4096)
+        node.input.append(X)
+        node.log('input size', str(len(node.input)))
+        # if the size is not enough, store in the queue and return.
+        if len(node.input) < 2:
+            node.release_lock()
+            return
+        # too many data packets, then drop some data.
+        while len(node.input) > 2:
+            node.input.popleft()
+
+        X = np.concatenate([np.array([node.input[0]]), np.array([node.input[1]])], 1)
+        fc2 = fc_2()
+        output = fc2.predict(X)
+        name = 'block3'
+        node.log('finish fc_2 forward')
+        return output, name
+
+    elif req_next == 'block3':
+        node.log('block3 gets data')
+        X = np.fromstring(bytestr, np.float32).reshape(1, 4096)
+        node.input.append(X)
+        node.log('input size', str(len(node.input)))
+        # if the size is not enough, store in the queue and return.
+        if len(node.input) < 2:
+            node.release_lock()
+            return
+        # too many data packets, then drop some data.
+        while len(node.input) > 2:
+            node.input.popleft()
+
+        X = np.concatenate([np.array([node.input[0]]), np.array([node.input[1]])], 1)
+        fc3 = fc_3()
+        output = fc3.predict(np.array([X]))
+        name = 'initial'
+        node.log('finish fc_3 forward')
+        return output, name
