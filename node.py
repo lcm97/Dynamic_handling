@@ -6,6 +6,7 @@ import os
 import time
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from SocketServer import ThreadingMixIn
+import Model_5, Model_6, Model_7, Model_8
 from collections import deque
 from multiprocessing import Queue
 from threading import Thread, Lock
@@ -14,7 +15,7 @@ import avro.protocol as protocol
 import avro.schema as schema
 import tensorflow as tf
 import yaml
-import Model_5 as ml
+
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -56,6 +57,7 @@ class Node(object):
         self.total = 0
         self.count = 1
         self.input = deque()
+        self.num_devices = 5
 
     def log(self, step, data=''):
         """
@@ -130,8 +132,19 @@ class Responder(ipc.Responder):
         if msg.name == 'forward':
             try:
                 with node.graph.as_default():
-                    output, name = ml.forward(req['input'], req['next'], node)
-                    Thread(target=self.send, args=(output, name, req['tag'])).start()
+                    if node.num_devices == 5:
+                        output, name = Model_5.forward(req['input'], req['next'], node)
+                        Thread(target=self.send, args=(output, name, req['tag'])).start()
+                    elif node.num_devices == 6:
+                        output, name = Model_6.forward(req['input'], req['next'], node)
+                        Thread(target=self.send, args=(output, name, req['tag'])).start()
+                    elif node.num_devices == 7:
+                        output, name = Model_7.forward(req['input'], req['next'], node)
+                        Thread(target=self.send, args=(output, name, req['tag'])).start()
+                    elif node.num_devices == 8:
+                        output, name = Model_8.forward(req['input'], req['next'], node)
+                        Thread(target=self.send, args=(output, name, req['tag'])).start()        
+                    
                 node.release_lock()
                 return
 
