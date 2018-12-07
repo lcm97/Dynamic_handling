@@ -12,7 +12,6 @@ from threading import Thread, Lock
 import avro.ipc as ipc
 import avro.protocol as protocol
 import avro.schema as schema
-import numpy as np
 import tensorflow as tf
 import yaml
 import Model_5 as ml
@@ -131,57 +130,8 @@ class Responder(ipc.Responder):
         if msg.name == 'forward':
             try:
                 with node.graph.as_default():
-                    bytestr = req['input']
-
-                    if req['next'] == 'spatial':
-                        node.log('spatial gets data')
-                        X = np.fromstring(bytestr, np.uint8).reshape(16, 12, 16, 3)
-                        node.model = ml.spatial_model_multi() if node.model is None else node.model
-                        output = node.model.predict(np.array([X]))
-                        node.log('finish spatial forward')
-                        Thread(target=self.send, args=(output, 'block1', req['tag'])).start()
-
-                    elif req['next'] == 'temporal':
-                        node.log('temporal gets data')
-                        X = np.fromstring(bytestr, np.uint8).reshape(16, 12, 16, 20)
-                        node.model = ml.temporal_model_multi() if node.model is None else node.model
-                        output = node.model.predict(np.array([X]))
-                        node.log('finish temporal forward')
-                        Thread(target=self.send, args=(output, 'block1', req['tag'])).start()
-
-                    elif req['next'] == 'block1':
-                        node.log('block1 gets data')
-                        X = np.fromstring(bytestr, np.float32).reshape(16, 256)
-                        node.input.append(X)
-                        node.log('input size', str(len(node.input)))
-                        # if the size is not enough, store in the queue and return.
-                        if len(node.input) < 2:
-                            node.release_lock()
-                            return
-                        # too many data packets, then drop some data.
-                        while len(node.input) > 2:
-                            node.input.popleft()
-
-                        mp_model = ml.maxpoolings()
-                        output1 = mp_model.predict(np.array([node.input[0]]))
-                        output2 = mp_model.predict(np.array([node.input[1]]))
-
-                        con_model = ml.temporal_pyramid_concate()
-                        X = con_model.predict([np.array([output1]), np.array([output2])])
-
-                        inter_dense = ml.fc_1()
-                        output = inter_dense.predict(X)
-
-                        node.log('fc_1 model inference')
-                        Thread(target=self.send, args=(output, 'block2', req['tag'])).start()
-
-                    elif req['next'] == 'block2':
-                        node.log('block2 gets data')
-                        X = np.fromstring(bytestr, np.float32).reshape(1, 8192)
-                        final_dense = ml.fc_23()
-                        output = final_dense.predict(X)
-                        node.log('finish fc_23 forward')
-                        Thread(target=self.send, args=(output, 'initial', req['tag'])).start()
+                    output, name = ml.forward(req['input'], req['next'], node)
+                    Thread(target=self.send, args=(output, name, req['tag'])).start()
                 node.release_lock()
                 return
 
