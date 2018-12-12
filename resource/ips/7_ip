@@ -1,0 +1,13 @@
+node: !!python/object/apply:collections.OrderedDict
+- - - initial
+    - [192.168.11.231]
+  - - spatial
+    - [192.168.43.89]
+  - - temporal
+    - [192.168.43.126]
+  - - block1
+    - [192.168.43.244, 192.168.1.225]
+  - - block2
+    - [192.168.43.203]
+  - - block3
+    - [192.168.1.231]
