@@ -6,7 +6,8 @@ import os
 import time
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from SocketServer import ThreadingMixIn
-from collections import deque
+import Model_5, Model_6, Model_7, Model_8
+from collections import deque, OrderedDict
 from multiprocessing import Queue
 from threading import Thread, Lock
 import avro.ipc as ipc
@@ -14,7 +15,7 @@ import avro.protocol as protocol
 import avro.schema as schema
 import tensorflow as tf
 import yaml
-import Model_5 as ml
+
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -56,6 +57,7 @@ class Node(object):
         self.total = 0
         self.count = 1
         self.input = deque()
+        self.num_devices = 6
 
     def log(self, step, data=''):
         """
@@ -130,8 +132,19 @@ class Responder(ipc.Responder):
         if msg.name == 'forward':
             try:
                 with node.graph.as_default():
-                    output, name = ml.forward(req['input'], req['next'], node)
-                    Thread(target=self.send, args=(output, name, req['tag'])).start()
+                    if node.num_devices == 5:
+                        output, name = Model_5.forward(req['input'], req['next'], node)
+                        Thread(target=self.send, args=(output, name, req['tag'])).start()
+                    elif node.num_devices == 6:
+                        output, name = Model_6.forward(req['input'], req['next'], node)
+                        Thread(target=self.send, args=(output, name, req['tag'])).start()
+                    elif node.num_devices == 7:
+                        output, name = Model_7.forward(req['input'], req['next'], node)
+                        Thread(target=self.send, args=(output, name, req['tag'])).start()
+                    elif node.num_devices == 8:
+                        output, name = Model_8.forward(req['input'], req['next'], node)
+                        Thread(target=self.send, args=(output, name, req['tag'])).start()
+
                 node.release_lock()
                 return
 
@@ -167,13 +180,100 @@ class Responder(ipc.Responder):
         data['tag'] = tag
         node.log('finish assembly')
         start = time.time()
-        requestor.request('forward', data)
+        try:
+            requestor.request('forward', data)
+        except Exception, e:
+            # node.log('Error', e.message)
+            # The interrupt node's ip is the address above
+            print address
+            """Remove the IP address of the interrupted node from the available ip"""
+            available_ip = read_ip(get_file(node.num_devices))
+            available_ip = del_ip(available_ip, address)
+
+            node.num_devices = node.num_devices - 1
+            """Update new IP configuration based on available ip"""
+            update_ip(get_file(node.num_devices), available_ip)
+
         end = time.time()
         node.timer(end - start)
-
         node.log('node gets request back')
+
         client.close()
         queue.put(address)
+
+
+def get_file(num_devices):
+    """Get the specified ip file"""
+    ip_path = 'resource/ips/'
+    ip_file = ip_path + str(num_devices) + '_ip'
+    return ip_file
+
+
+def ordered_load(stream, Loader=yaml.Loader, object_pairs_hook=OrderedDict):
+    """Load dict into OrderedDict type"""
+    class OrderedLoader(Loader):
+        pass
+
+    def construct_mapping(loader, node):
+        loader.flatten_mapping(node)
+        return object_pairs_hook(loader.construct_pairs(node))
+    OrderedLoader.add_constructor(
+        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+        construct_mapping)
+    return yaml.load(stream, OrderedLoader)
+
+
+def read_ip(ip_file):
+    """Read the ip from ip_files"""
+    with open(ip_file, "r") as file:
+        address = ordered_load(file)
+        """address is a dict type object"""
+        # print address
+        address = address['node']
+
+        available_ip = []
+        """Get all the ip addresses"""
+        for i in address:
+            print i
+            for ip in address[i]:
+                available_ip.append(ip)
+            # print address[i]
+        # print address['block1']
+        return available_ip
+
+
+def del_ip(ip_list, interrupted_ip):
+    """Delete interrupted ip address"""
+    ip_index = ip_list.index(interrupted_ip)
+    del ip_list[ip_index]
+    return ip_list
+
+
+def update_ip(ip_file, available_ip):
+    """Upgrade the ip configuration and write it to the ip file"""
+    with open(ip_file, "r") as file:
+        address = ordered_load(file)
+        """address is a dict type object"""
+        # print address
+        address = address['node']
+
+    with open(ip_file, "w") as file:
+        print address
+        # address['initial'][0] = available_ip[2]
+        """Fill the new configuration with available_ip"""
+        index = 0
+        for i in address:
+            for ip in address[i]:
+                j = address[i].index(ip)
+                address[i][j] = available_ip[index]
+                index = index + 1
+
+        print address
+        # print address['initial']
+        # address = dict(address)
+        node_ip = dict()
+        node_ip['node'] = address
+        yaml.dump(node_ip, file)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -204,7 +304,7 @@ def main(cmd):
     node.debug = cmd.debug
 
     # read ip resources from config file
-    with open('resource/ip') as file:
+    with open(get_file(node.num_devices))  as file:
         address = yaml.safe_load(file)
         node.ip['spatial'] = Queue()
         node.ip['temporal'] = Queue()
