@@ -276,6 +276,19 @@ def update_ip(ip_file, available_ip):
         yaml.dump(node_ip, file)
 
 
+def load_ip(node):
+    with open(get_file(node.num_devices)) as file:
+        """read ip resources from config file"""
+        address = yaml.safe_load(file)
+        address = address['node']
+        for i in address:
+            node.ip[i] = Queue()
+            for addr in address[i]:
+                if addr == '#':
+                    break
+                node.ip[i].put(addr)
+   
+                
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         """
@@ -302,36 +315,8 @@ def main(cmd):
     node = Node.create()
 
     node.debug = cmd.debug
-
-    # read ip resources from config file
-    with open(get_file(node.num_devices))  as file:
-        address = yaml.safe_load(file)
-        node.ip['spatial'] = Queue()
-        node.ip['temporal'] = Queue()
-        node.ip['block1'] = Queue()
-        node.ip['block2'] = Queue()
-        node.ip['initial'] = Queue()
-        address = address['node']
-        for addr in address['spatial']:
-            if addr == '#':
-                break
-            node.ip['spatial'].put(addr)
-        for addr in address['temporal']:
-            if addr == '#':
-                break
-            node.ip['temporal'].put(addr)
-        for addr in address['block1']:
-            if addr == '#':
-                break
-            node.ip['block1'].put(addr)
-        for addr in address['block2']:
-            if addr == '#':
-                break
-            node.ip['block2'].put(addr)
-        for addr in address['initial']:
-            if addr == '#':
-                break
-            node.ip['initial'].put(addr)
+    
+    load_ip(node)
 
     server = ThreadedHTTPServer(('0.0.0.0', 12345), Handler)
     server.allow_reuse_address = True
