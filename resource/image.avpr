@@ -16,5 +16,15 @@
       } ],
       "response" : "null"
     }
+    "update" : {
+       "request" : [ {
+        "name" : "num_devices",
+        "type" : "int"
+      }, {
+        "name" : "available_ip",
+        "type" : "array"
+      } ],
+      "response" : "null"
+    }
   }
 }
