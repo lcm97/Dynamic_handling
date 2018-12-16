@@ -16,7 +16,6 @@ import avro.schema as schema
 import tensorflow as tf
 import yaml
 
-
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 # read data packet format.
@@ -28,7 +27,6 @@ class Node(object):
         Singleton Node class. It will store data if necessary, record next layer
         response time, send data packet to next layer and store the loaded model
         in memory without reloading.
-
         Attributes:
             ip: A dictionary contains Queue of ip addresses for different models type.
             model: Loaded models associated to a node.
@@ -62,7 +60,6 @@ class Node(object):
     def log(self, step, data=''):
         """
             Log function for debug. Turn the flag on to show each step result.
-
             Args:
                 step: Each step names.
                 data: Data format or size.
@@ -107,7 +104,6 @@ class Responder(ipc.Responder):
             All models forwarding and output redirect are done here. Because the invoke
             method of initializer only needs to receive the data packet, it does not do
             anything in the function and return None.
-
             Because this is a node class, it has all necessary code here for handling
             different inputs. Basically the logic is load model as the previous layer
             request and run model inference. And it will send the current layer output
@@ -115,14 +111,11 @@ class Responder(ipc.Responder):
             convenience. In order to avoid long waiting time of model reloading, we
             make sure each node is assigned to a unique job each time, so it does not
             need to reload the model.
-
             Args:
                 msg: Meta data.
                 req: Contains data packet.
-
             Returns:
                 None: It just acts as confirmation for sender.
-
             Raises:
                 AvroException: if the data does not have correct syntac defined in Schema
         """
@@ -150,6 +143,21 @@ class Responder(ipc.Responder):
 
             except Exception, e:
                 node.log('Error', e.message)
+        elif msg.name == 'update':
+            """update this node's task configuration,based on the received massage """
+            try:
+                node.num_devices = req['num_devices']
+                available_ip = req['available_ip']
+
+                update_ip(get_file(node.num_devices), available_ip)
+                load_ip(node)
+
+                node.release_lock()
+                return
+
+            except Exception, e:
+                node.log('Error', e.message)
+
         else:
             raise schema.AvroException('unexpected message:', msg.getname())
 
@@ -157,7 +165,6 @@ class Responder(ipc.Responder):
         """
             Send data to other devices. The data packet contains data and models name.
             Ip address of next device pop from Queue of a ip list.
-
             Args:
                  X: numpy array
                  name: next device models name
@@ -194,6 +201,9 @@ class Responder(ipc.Responder):
             """Update new IP configuration based on available ip"""
             update_ip(get_file(node.num_devices), available_ip)
 
+            """Reload the new ip configuration file"""
+            load_ip(node)
+
         end = time.time()
         node.timer(end - start)
         node.log('node gets request back')
@@ -211,12 +221,14 @@ def get_file(num_devices):
 
 def ordered_load(stream, Loader=yaml.Loader, object_pairs_hook=OrderedDict):
     """Load dict into OrderedDict type"""
+
     class OrderedLoader(Loader):
         pass
 
     def construct_mapping(loader, node):
         loader.flatten_mapping(node)
         return object_pairs_hook(loader.construct_pairs(node))
+
     OrderedLoader.add_constructor(
         yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
         construct_mapping)
@@ -287,8 +299,8 @@ def load_ip(node):
                 if addr == '#':
                     break
                 node.ip[i].put(addr)
-   
-                
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         """
@@ -315,7 +327,7 @@ def main(cmd):
     node = Node.create()
 
     node.debug = cmd.debug
-    
+
     load_ip(node)
 
     server = ThreadedHTTPServer(('0.0.0.0', 12345), Handler)
